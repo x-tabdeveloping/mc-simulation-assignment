@@ -41,7 +41,7 @@ def control_variate_z_squared(z, x=10):
     """Estimates P(L>x) Z^2 as a control variate."""
     X = (2 * z + jnp.square(z)) > x
     Y = jnp.square(z) > x
-    E_Y = jnp.where(x >= 0, 1 - norm.cdf(jnp.sqrt(x)), 1)
+    E_Y = jnp.where(x >= 0, 1 - norm.cdf(jnp.sqrt(x)) + norm.cdf(-jnp.sqrt(x)), 1)
     Var_Y = E_Y * (1 - E_Y)
     c_star = -jnp.cov(X, Y, ddof=1)[0, 1] / Var_Y
     # Falling back to Crude MC when the variance of the control variable is 0
@@ -49,29 +49,24 @@ def control_variate_z_squared(z, x=10):
     return jnp.mean(_X), jnp.var(_X, ddof=1)
 
 
-def importance_sampling(z, x=10, exp_val=None):
-    """Estimates P(L>x) using importance sampling.
-    The change of measure (L*) is achieved by shifting Z's mean, such that E[L*] = x by default.
-    You can change this value by specifying exp_val = <your value here>.
-    """
-    if exp_val is None:
-        exp_val = x
+def importance_sampling(z, mu, x=10):
+    """Estimates P(L>x) using importance sampling."""
     # Change of measure to where E[L*] = exp_val
-    mu = -1 + jnp.sqrt(4 + 4 * exp_val) / 2
-    z = z + mu
-    likelihood_ratio = norm.pdf(z, loc=0, scale=1) / norm.pdf(z, loc=mu, scale=1)
-    X = ((2 * z + jnp.square(z)) > x) * likelihood_ratio
+    d = z + mu
+    likelihood_ratio = norm.pdf(d) / norm.pdf(d - mu)
+    X = ((2 * d + jnp.square(d)) > x) * likelihood_ratio
     return jnp.mean(X), jnp.var(X, ddof=1)
 
 
 def main():
     x = 10
+    mu_d_1 = -1 + jnp.sqrt(38) / 2
+    mu_d_2 = -1 - jnp.sqrt(38) / 2
     variance_reduction_methods = {
         "Control Variate (2Z)": partial(control_variate_2z, x=x),
         "Control Variate (Z^2)": partial(control_variate_z_squared, x=x),
-        # I try this because there is more overlap with L in terms of the domain
-        "Importance Sampling (E[L*] = 5)": partial(importance_sampling, exp_val=5, x=x),
-        "Importance Sampling (E[L*] = x)": partial(importance_sampling, x=x),
+        "Importance Sampling (D_1)": partial(importance_sampling, mu=mu_d_1, x=x),
+        "Importance Sampling (D_2)": partial(importance_sampling, mu=mu_d_2, x=x),
     }
     key = jax.random.key(0)
     # JIT compilation and warming up
